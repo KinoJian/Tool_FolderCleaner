@@ -1,0 +1,32 @@
+﻿{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tool FolderCleaner",
+  "version": "0.1.0",
+  "identifier": "com.ajian.tools.foldercleaner",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Folder Cleaner",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1200,
+        "minHeight": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
