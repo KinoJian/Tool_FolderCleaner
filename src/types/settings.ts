@@ -1,4 +1,4 @@
-﻿export type ExecutionMode = 'preview' | 'auto';
+export type ExecutionMode = 'preview' | 'auto';
 export type DeleteMode = 'recycle-bin' | 'permanent';
 export type ScheduleFrequency = 'daily' | 'weekly';
 
@@ -20,13 +20,27 @@ export interface SummaryMetric {
   hint: string;
 }
 
-export interface ScanPreviewRow {
+export interface ScanSummary {
+  totalFiles: number;
+  matchingFiles: number;
+  matchedFolders: number;
+}
+
+export interface ScanFolderRow {
   folder: string;
+  totalFiles: number;
+  matchingFiles: number;
   shotGroups: number;
   keepCount: number;
   cleanupCount: number;
-  reclaimable: string;
+  reclaimableBytes: number;
   status: string;
+}
+
+export interface ScanResult {
+  summary: ScanSummary;
+  folders: ScanFolderRow[];
+  cleanupPaths: string[];
 }
 
 export interface PlannedTask {

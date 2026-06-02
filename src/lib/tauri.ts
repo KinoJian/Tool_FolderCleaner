@@ -1,6 +1,6 @@
-﻿import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { AppSettings, DeleteMode } from '../types/settings';
+import type { AppSettings, DeleteMode, ScanResult } from '../types/settings';
 
 const hasWindow = typeof window !== 'undefined';
 
@@ -44,4 +44,19 @@ export async function deletePaths(paths: string[], mode: DeleteMode): Promise<vo
   }
 
   await invoke('delete_paths', { request: { paths, mode } });
+}
+
+export async function scanFolders(settings: AppSettings): Promise<ScanResult | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  return invoke<ScanResult>('scan_folders', {
+    request: {
+      rootDirectory: settings.rootDirectory,
+      targetFolderName: settings.targetFolderName,
+      extensions: settings.extensions,
+      maxVersionsPerShot: settings.maxVersionsPerShot,
+    },
+  });
 }

@@ -1,14 +1,27 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SectionCard } from './components/SectionCard';
 import { StatCard } from './components/StatCard';
 import { dashboardSummary, defaultSettings, plannedTasks, previewSkeleton } from './lib/defaults';
-import { isTauriRuntime, loadSettings, pickDirectory, saveSettings } from './lib/tauri';
-import type { AppSettings, DeleteMode, ExecutionMode, ScheduleFrequency } from './types/settings';
+import { deletePaths, isTauriRuntime, loadSettings, pickDirectory, saveSettings, scanFolders } from './lib/tauri';
+import type {
+  AppSettings,
+  DeleteMode,
+  ExecutionMode,
+  ScanFolderRow,
+  ScanSummary,
+  ScheduleFrequency,
+} from './types/settings';
 
 function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [saveState, setSaveState] = useState('尚未保存');
   const [browseState, setBrowseState] = useState('等待桌面环境');
+  const [scanState, setScanState] = useState('尚未扫描');
+  const [isScanning, setIsScanning] = useState(false);
+  const [isExecutingCleanup, setIsExecutingCleanup] = useState(false);
+  const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
+  const [scanRows, setScanRows] = useState<ScanFolderRow[]>([]);
+  const [pendingCleanupPaths, setPendingCleanupPaths] = useState<string[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -29,6 +42,35 @@ function App() {
   }, []);
 
   const extensionText = useMemo(() => settings.extensions.join(', '), [settings.extensions]);
+  const totalReclaimableBytes = useMemo(
+    () => scanRows.reduce((sum, row) => sum + row.reclaimableBytes, 0),
+    [scanRows],
+  );
+  const summaryCards = useMemo(() => {
+    if (!scanSummary) {
+      return dashboardSummary;
+    }
+
+    return [
+      { label: '总文件数', value: scanSummary.totalFiles.toLocaleString('zh-CN'), hint: '扫描根目录下全部文件' },
+      {
+        label: '匹配文件数',
+        value: scanSummary.matchingFiles.toLocaleString('zh-CN'),
+        hint: '按扩展名白名单过滤后的文件数',
+      },
+      {
+        label: '命中文件夹数',
+        value: scanSummary.matchedFolders.toLocaleString('zh-CN'),
+        hint: '名称精确命中的目标文件夹',
+      },
+      {
+        label: '预计释放空间',
+        value: formatBytes(totalReclaimableBytes),
+        hint: '基于当前稀疏保留规则的预估清理体积',
+      },
+    ];
+  }, [scanSummary, totalReclaimableBytes]);
+  const displayedRows = scanRows.length > 0 ? scanRows : previewSkeleton;
 
   function updateSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setSettings((current) => ({
@@ -58,6 +100,76 @@ function App() {
     setSaveState(isTauriRuntime() ? '已写入本地 settings.json' : '浏览器预览模式下仅更新界面状态');
   }
 
+  async function handleScanFolders() {
+    if (!settings.rootDirectory.trim()) {
+      setScanState('请先选择扫描根目录');
+      return;
+    }
+
+    setIsScanning(true);
+    setScanState('正在扫描目录...');
+
+    try {
+      const result = await scanFolders(settings);
+      if (!result) {
+        setScanState('当前为浏览器预览环境，需在 Tauri 桌面壳中执行真实扫描');
+        return;
+      }
+
+      setScanSummary(result.summary);
+      setScanRows(result.folders);
+      setPendingCleanupPaths(result.cleanupPaths);
+
+      if (result.summary.matchedFolders === 0) {
+        setScanState('扫描完成，但未找到匹配的目标文件夹');
+        return;
+      }
+
+      if (settings.executionMode === 'auto' && result.cleanupPaths.length > 0) {
+        await executeCleanup(result.cleanupPaths, true);
+        return;
+      }
+
+      if (result.cleanupPaths.length > 0) {
+        setScanState(
+          `扫描完成，已找到 ${result.summary.matchedFolders} 个目标文件夹，待清理 ${result.cleanupPaths.length} 个文件`,
+        );
+      } else {
+        setScanState(`扫描完成，已找到 ${result.summary.matchedFolders} 个目标文件夹，但当前无需清理`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setScanState(`扫描失败：${message}`);
+    } finally {
+      setIsScanning(false);
+    }
+  }
+
+  async function executeCleanup(paths: string[], isAutoRun = false) {
+    if (paths.length === 0) {
+      setScanState('当前没有可清理文件');
+      return;
+    }
+
+    setIsExecutingCleanup(true);
+    setScanState(isAutoRun ? '自动执行清理中...' : '正在执行清理...');
+
+    try {
+      await deletePaths(paths, settings.deleteMode);
+      setPendingCleanupPaths([]);
+      setScanState(
+        `${isAutoRun ? '自动' : '手动'}清理完成，已处理 ${paths.length} 个文件（模式：${
+          settings.deleteMode === 'recycle-bin' ? '移入回收站' : '彻底删除'
+        }）`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setScanState(`执行清理失败：${message}`);
+    } finally {
+      setIsExecutingCleanup(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="hero">
@@ -72,6 +184,7 @@ function App() {
           <span>运行时：{isTauriRuntime() ? 'Tauri 桌面壳' : '浏览器预览'}</span>
           <span>配置状态：{saveState}</span>
           <span>目录状态：{browseState}</span>
+          <span>扫描状态：{scanState}</span>
         </div>
       </header>
 
@@ -187,10 +300,10 @@ function App() {
 
       <SectionCard
         title="统计区"
-        description="当前展示 Task 2 将回填的核心统计指标。"
+        description="Task 2-3 已接入真实扫描统计，并基于镜头组规则预估可清理体积。"
       >
         <div className="stats-grid">
-          {dashboardSummary.map((item) => (
+          {summaryCards.map((item) => (
             <StatCard key={item.label} label={item.label} value={item.value} hint={item.hint} />
           ))}
         </div>
@@ -199,11 +312,31 @@ function App() {
       <section className="dashboard-grid bottom-grid">
         <SectionCard
           title="扫描结果区"
-          description="Task 2-4 将把真实扫描、分组和预览结果挂到这里。"
+          description="当前已展示目标文件夹统计、镜头组数量、建议保留/清理数量和预计释放空间。"
           actions={
-            <button type="button" className="primary-button" disabled>
-              开始扫描（待 Task 2 接入）
-            </button>
+            <div className="panel-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={
+                  isScanning ||
+                  isExecutingCleanup ||
+                  settings.executionMode !== 'preview' ||
+                  pendingCleanupPaths.length === 0
+                }
+                onClick={() => void executeCleanup(pendingCleanupPaths)}
+              >
+                {isExecutingCleanup ? '清理中...' : '执行清理'}
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={isScanning || isExecutingCleanup || !settings.rootDirectory.trim()}
+                onClick={handleScanFolders}
+              >
+                {isScanning ? '扫描中...' : '开始扫描'}
+              </button>
+            </div>
           }
         >
           <div className="table-wrap">
@@ -211,6 +344,8 @@ function App() {
               <thead>
                 <tr>
                   <th>目标文件夹</th>
+                  <th>文件总数</th>
+                  <th>匹配文件数</th>
                   <th>镜头组</th>
                   <th>建议保留</th>
                   <th>建议清理</th>
@@ -219,13 +354,15 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {previewSkeleton.map((row) => (
+                {displayedRows.map((row) => (
                   <tr key={row.folder}>
                     <td>{row.folder}</td>
-                    <td>{row.shotGroups}</td>
-                    <td>{row.keepCount}</td>
-                    <td>{row.cleanupCount}</td>
-                    <td>{row.reclaimable}</td>
+                    <td>{row.totalFiles.toLocaleString('zh-CN')}</td>
+                    <td>{row.matchingFiles.toLocaleString('zh-CN')}</td>
+                    <td>{row.shotGroups.toLocaleString('zh-CN')}</td>
+                    <td>{row.keepCount.toLocaleString('zh-CN')}</td>
+                    <td>{row.cleanupCount.toLocaleString('zh-CN')}</td>
+                    <td>{formatBytes(row.reclaimableBytes)}</td>
                     <td>{row.status}</td>
                   </tr>
                 ))}
@@ -275,6 +412,23 @@ function App() {
       </SectionCard>
     </main>
   );
+}
+
+function formatBytes(value: number): string {
+  if (value <= 0) {
+    return '0 B';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 export default App;

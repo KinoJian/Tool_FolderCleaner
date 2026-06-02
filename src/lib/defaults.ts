@@ -1,4 +1,4 @@
-﻿import type { AppSettings, PlannedTask, ScanPreviewRow, SummaryMetric } from '../types/settings';
+import type { AppSettings, PlannedTask, ScanFolderRow, SummaryMetric } from '../types/settings';
 
 export const defaultSettings: AppSettings = {
   rootDirectory: '',
@@ -19,21 +19,25 @@ export const dashboardSummary: SummaryMetric[] = [
   { label: '预计释放空间', value: '--', hint: 'Task 4 输出预览后回填' },
 ];
 
-export const previewSkeleton: ScanPreviewRow[] = [
+export const previewSkeleton: ScanFolderRow[] = [
   {
     folder: 'D:\\Project\\Episode01\\Shot010\\unity',
+    totalFiles: 84,
+    matchingFiles: 32,
     shotGroups: 12,
-    keepCount: 36,
-    cleanupCount: 18,
-    reclaimable: '28.4 GB',
-    status: '等待 Task 2-4 接入真实扫描',
+    keepCount: 26,
+    cleanupCount: 6,
+    reclaimableBytes: 28_400_000_000,
+    status: '等待 Task 2 接入真实扫描',
   },
   {
     folder: 'D:\\Project\\Episode02\\Shot070\\unity',
+    totalFiles: 53,
+    matchingFiles: 19,
     shotGroups: 8,
-    keepCount: 24,
-    cleanupCount: 11,
-    reclaimable: '16.7 GB',
+    keepCount: 17,
+    cleanupCount: 2,
+    reclaimableBytes: 16_700_000_000,
     status: '骨架示例数据',
   },
 ];
